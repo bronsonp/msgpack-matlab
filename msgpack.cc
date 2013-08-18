@@ -43,18 +43,8 @@ struct mxArrayRes {
   mxArrayRes * next;
 };
 
-#define DEFAULT_STR_SIZE 256
-/* preallocate str space for unpack raw */
-char *unpack_raw_str = (char *)mxMalloc(sizeof(char) * DEFAULT_STR_SIZE);
-
 void (*PackMap[17]) (msgpack_packer *pk, int nrhs, const mxArray *prhs);
 mxArray* (*unPackMap[8]) (msgpack_object obj);
-
-void mexExit(void) {
-//  mxFree((void *)unpack_raw_str);
-  fprintf(stdout, "Existing Mex Msgpack \n");
-  fflush(stdout);
-}
 
 mxArrayRes * mxArrayRes_new(mxArrayRes * head, mxArray* res) {
   mxArrayRes * new_res = (mxArrayRes *)mxCalloc(1, sizeof(mxArrayRes));
@@ -108,19 +98,7 @@ mxArray* mex_unpack_double(msgpack_object obj) {
 }
 
 mxArray* mex_unpack_raw(msgpack_object obj) {
-/*
-  mxArray* ret = mxCreateNumericMatrix(1,obj.via.raw.size, mxUINT8_CLASS, mxREAL);
-  uint8_t *ptr = (uint8_t*)mxGetPr(ret); 
-  memcpy(ptr, obj.via.raw.ptr, obj.via.raw.size * sizeof(uint8_t));
-*/
-  if (obj.via.raw.size > DEFAULT_STR_SIZE)
-    mxRealloc(unpack_raw_str, sizeof(char) * obj.via.raw.size);
-
-  strncpy(unpack_raw_str, obj.via.raw.ptr, sizeof(char) * obj.via.raw.size);
-  unpack_raw_str[obj.via.raw.size] = '\0';
-  mxArray* ret = mxCreateString((const char *)unpack_raw_str);
-
-  return ret;
+	return mxCreateString(obj.via.raw.ptr);
 }
 
 mxArray* mex_unpack_nil(msgpack_object obj) {
@@ -337,26 +315,17 @@ void mex_pack_logical(msgpack_packer *pk, int nrhs, const mxArray *prhs) {
 }
 
 void mex_pack_char(msgpack_packer *pk, int nrhs, const mxArray *prhs) {
-  mwSize str_len = mxGetNumberOfElements(prhs) + 1;
-  char *buf = (char *)mxCalloc(str_len, sizeof(char));
+	size_t len;
+	char *buf = mxArrayToString(prhs);
+	if (buf == NULL) {
+		mexErrMsgTxt("Failed to retrieve string data.");
+	}
+	len = strlen(buf);
 
-  if (mxGetString(prhs, buf, str_len) != 0)
-    mexErrMsgTxt("Could not convert to C string data");
+	msgpack_pack_raw(pk, len);
+	msgpack_pack_raw_body(pk, buf, len);
 
-  msgpack_pack_raw(pk, str_len);
-  msgpack_pack_raw_body(pk, buf, str_len);
-
-  mxFree(buf);
-
-/* uint8 input
-  int nElements = mxGetNumberOfElements(prhs);
-  uint8_t *data = (uint8_t*)mxGetPr(prhs); 
-*/
-  /* matlab char type is actually uint16 -> 2 * uint8 */
-/* uint8 input
-  msgpack_pack_raw(pk, nElements * 2);
-  msgpack_pack_raw_body(pk, data, nElements * 2);
-*/
+	mxFree(buf);
 }
 
 void mex_pack_cell(msgpack_packer *pk, int nrhs, const mxArray *prhs) {
@@ -522,7 +491,6 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     PackMap[mxINT64_CLASS] = mex_pack_int64;
     PackMap[mxUINT64_CLASS] = mex_pack_uint64;
 
-    mexAtExit(mexExit);
     init = true;
   }
 
@@ -546,4 +514,3 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
   else
     mexErrMsgTxt("Unknown function argument");
 }
-
